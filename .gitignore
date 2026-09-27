@@ -1,8 +1,9 @@
 /venv/
 .idea/
 __pycache__/
-*.pycpip ins
+*.pyc
 *.ini
 *.json
 /dist/
-/python_maze.egg-info/
+/build/
+*.egg-info/
