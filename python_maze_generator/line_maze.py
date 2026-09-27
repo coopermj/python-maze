@@ -481,7 +481,7 @@ def main(argv=None):
     best_maze = None
     best_length = 0
     for maze in range(0, args.iterations):
-        m = LineMaze(args.height, args.width, 'first', optimize=args.smart)
+        m = LineMaze(args.height, args.width, optimize=args.smart)
         length = m.length
         if not best_maze or length > best_length:
             best_maze = m
@@ -492,6 +492,7 @@ def main(argv=None):
     print("\n")
     output_maze(best_maze, args.output)
     print(f"done: best quality {best_maze.length}")
+    return best_maze
 
 
 if __name__ == '__main__':

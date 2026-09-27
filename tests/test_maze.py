@@ -115,6 +115,17 @@ class TestCli(unittest.TestCase):
     def test_multithreaded_maze_saves_maze_and_solution(self):
         self.assert_saves_maze_and_solution(multithreaded_maze.main, ['-T', '2'])
 
+    def test_line_maze_cli_makes_winding_maze(self):
+        # 'first' mode builds a comb of straight corridors with horizontal passages in only one row
+        with tempfile.TemporaryDirectory() as d:
+            maze = quiet(line_maze.main, ['-H', '20', '-W', '20', '-I', '1', '-o', os.path.join(d, 'maze.png')])
+        m = maze.m
+        rows_with_side_passages = [
+            i for i in range(1, len(m) - 1, 2)
+            if any(m[i][j] == maze.open_wall for j in range(2, len(m[0]) - 2, 2))
+        ]
+        self.assertGreater(len(rows_with_side_passages), 10)
+
     def test_rejects_non_positive_arguments(self):
         for main in (line_maze.main, multithreaded_maze.main):
             for flag in ('-H', '-W', '-I'):
