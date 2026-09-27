@@ -1,5 +1,6 @@
 import argparse
 import colorama
+import os
 import random
 from PIL import Image, ImageDraw
 from anytree import Node, walker
@@ -9,8 +10,17 @@ import sys
 debug = True
 
 
+def positive_int(value):
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, got {value}")
+    return number
+
+
 class LineMaze:
     def __init__(self, h, w, mode="random", optimize=False):
+        if h < 1 or w < 1:
+            raise ValueError(f"maze must be at least 1x1, got {h}x{w}")
         self.maze_w = w
         self.maze_h = h
         self.undefined_wall = 'u'
@@ -305,20 +315,22 @@ class LineMaze:
         return count
 
     def open_exit(self, coord):
-        # Top: Y == 1, open 0,x
+        # Open the first border wall next to this edge cell that isn't already open,
+        # so a cell that is also the entrance gets a separate exit.
+        candidates = list()
         if coord[0] == 1:
-            self.set_contents(coord[0]-1, coord[1], self.solved_path)
-        # Bottom: Y == max cell, open y+1,x
-        elif coord[0] == len(self.m)-2:
-            self.set_contents(coord[0]+1, coord[1], self.solved_path)
-        # Left: X == 1, open y,0
-        elif coord[1] == 1:
-            self.set_contents(coord[0], coord[1]-1, self.solved_path)
-        # Right: X == max cell, open y,x+1
-        elif coord[1] == len(self.m[0])-2:
-            self.set_contents(coord[0], coord[1]+1, self.solved_path)
-        else:
-            raise RuntimeError(f"Bad Exit selected: {LineMaze.coord_name(coord)}")
+            candidates.append((coord[0]-1, coord[1]))
+        if coord[0] == len(self.m)-2:
+            candidates.append((coord[0]+1, coord[1]))
+        if coord[1] == 1:
+            candidates.append((coord[0], coord[1]-1))
+        if coord[1] == len(self.m[0])-2:
+            candidates.append((coord[0], coord[1]+1))
+        for wall in candidates:
+            if self.get_contents(wall[0], wall[1]) == self.filled_wall:
+                self.set_contents(wall[0], wall[1], self.solved_path)
+                return
+        raise RuntimeError(f"Bad Exit selected: {LineMaze.coord_name(coord)}")
 
     def walk_recurse(self, here: Node, maze_exit: tuple):
         for i in self.get_adj_cells_equal(here.coord[0], here.coord[1], self.cell, True):
@@ -437,25 +449,39 @@ class LineMaze:
         if show:
             self.show_image()
 
+    def save_image(self, path, solved=False):
+        self.draw(solved=solved, show=False)
+        self.image.save(path)
 
-if __name__ == '__main__':
+
+def solution_path(output):
+    root, ext = os.path.splitext(output)
+    return f"{root}_solution{ext or '.png'}"
+
+
+def output_maze(maze, output=None):
+    if output:
+        maze.save_image(output, solved=False)
+        maze.save_image(solution_path(output), solved=True)
+        print(f"saved {output} and {solution_path(output)}")
+    else:
+        maze.draw(solved=True)
+        maze.draw(solved=False)
+
+
+def main(argv=None):
     sys.setrecursionlimit(10**6)
     a = argparse.ArgumentParser()
-    a.add_argument('-H', '--height', default=50, type=int, help='how high to make the maze')
-    a.add_argument('-W', '--width', default=50, type=int, help='how wide to make the maze')
+    a.add_argument('-H', '--height', default=50, type=positive_int, help='how high to make the maze')
+    a.add_argument('-W', '--width', default=50, type=positive_int, help='how wide to make the maze')
     a.add_argument('-S', '--smart', action="store_true", help='optimize the maze by being smart')
-    a.add_argument('-I', '--iterations', default=5, type=int, help='how many times to try')
-    a.set_defaults(smart=False)
-    args = a.parse_args()
-    # Defaults:
-    maze_h = args.height
-    maze_w = args.width
-    attempts = args.iterations
-    smart = args.smart
+    a.add_argument('-I', '--iterations', default=5, type=positive_int, help='how many times to try')
+    a.add_argument('-o', '--output', help='save the maze to this PNG (and the solution next to it) instead of showing it')
+    args = a.parse_args(argv)
     best_maze = None
     best_length = 0
-    for maze in range(0, attempts):
-        m = LineMaze(maze_h, maze_w, 'first', optimize=args.smart)
+    for maze in range(0, args.iterations):
+        m = LineMaze(args.height, args.width, 'first', optimize=args.smart)
         length = m.length
         if not best_maze or length > best_length:
             best_maze = m
@@ -464,6 +490,9 @@ if __name__ == '__main__':
         else:
             print('.', end='')
     print("\n")
-    best_maze.draw(solved=True)
-    best_maze.draw(solved=False)
+    output_maze(best_maze, args.output)
     print(f"done: best quality {best_maze.length}")
+
+
+if __name__ == '__main__':
+    main()

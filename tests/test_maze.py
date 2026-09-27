@@ -1,8 +1,15 @@
+import contextlib
+import io
+import os
 import random
 import sys
+import tempfile
 import threading
 import unittest
 
+from PIL import Image
+
+from python_maze_generator import line_maze, multithreaded_maze
 from python_maze_generator.line_maze import LineMaze
 from python_maze_generator.multithreaded_maze import generate_mazes
 
@@ -51,6 +58,19 @@ class TestBorders(unittest.TestCase):
             maze = LineMaze(6, 6, optimize=True)
             self.assertEqual(len(border_openings(maze)), 2, f"seed {seed}")
 
+    def test_small_mazes_have_exactly_entrance_and_exit(self):
+        for h, w in [(1, 1), (1, 3), (3, 1), (2, 2), (2, 5)]:
+            for optimize in (False, True):
+                for seed in range(20):
+                    random.seed(seed)
+                    maze = LineMaze(h, w, optimize=optimize)
+                    self.assertEqual(len(border_openings(maze)), 2, f"{h}x{w} optimize={optimize} seed {seed}")
+
+    def test_non_positive_size_is_rejected(self):
+        for h, w in [(0, 5), (5, 0), (-1, 5)]:
+            with self.assertRaises(ValueError):
+                LineMaze(h, w)
+
 
 class TestMode(unittest.TestCase):
     def test_first_mode_differs_from_random_mode(self):
@@ -73,6 +93,35 @@ class TestGenerateMazes(unittest.TestCase):
     def test_zero_threads_is_rejected(self):
         result = run_with_timeout(lambda: generate_mazes(5, 5, 2, 0), timeout=10)
         self.assertIsInstance(result.get('error'), ValueError)
+
+
+def quiet(fn, *args):
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        return fn(*args)
+
+
+class TestCli(unittest.TestCase):
+    def assert_saves_maze_and_solution(self, main, extra_args):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, 'maze.png')
+            quiet(main, ['-H', '4', '-W', '6', '-I', '2', '-o', out] + extra_args)
+            for path in (out, os.path.join(d, 'maze_solution.png')):
+                with Image.open(path) as img:
+                    self.assertEqual(img.size, (6 * 23 + 4, 4 * 23 + 4))
+
+    def test_line_maze_saves_maze_and_solution(self):
+        self.assert_saves_maze_and_solution(line_maze.main, ['-S'])
+
+    def test_multithreaded_maze_saves_maze_and_solution(self):
+        self.assert_saves_maze_and_solution(multithreaded_maze.main, ['-T', '2'])
+
+    def test_rejects_non_positive_arguments(self):
+        for main in (line_maze.main, multithreaded_maze.main):
+            for flag in ('-H', '-W', '-I'):
+                with self.assertRaises(SystemExit):
+                    quiet(main, [flag, '0'])
+        with self.assertRaises(SystemExit):
+            quiet(multithreaded_maze.main, ['-T', '0'])
 
 
 if __name__ == '__main__':

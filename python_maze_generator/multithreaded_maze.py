@@ -1,73 +1,58 @@
 import sys
-from queue import Queue, Empty
-from python_maze_generator.line_maze import LineMaze
-from threading import Thread
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from python_maze_generator.line_maze import LineMaze, output_maze, positive_int
 import time
 import argparse
 
 
-def build_maze(q, output_length, output_maze, errors, h, w):
-    while True:
-        try:
-            job_id = q.get(block=False)
-        except Empty:
-            return
-        try:
-            m = LineMaze(h, w, optimize=True)
-            output_length[job_id] = m.length
-            output_maze[job_id] = m
-        except Exception as e:
-            errors.append(e)
-        finally:
-            q.task_done()
+def build_maze(h, w):
+    # Runs in a worker process, which doesn't inherit the parent's recursion limit
+    sys.setrecursionlimit(10**6)
+    m = LineMaze(h, w, optimize=True)
+    # The solution tree isn't needed after solving and is expensive to send back
+    m.best = [None, m.best[1]]
+    return m
 
 
 def generate_mazes(height, width, iterations, threads) -> LineMaze:
+    """Generate `iterations` optimized mazes across `threads` worker processes and return the longest."""
     if threads < 1:
         raise ValueError("threads must be at least 1")
     if iterations < 1:
         raise ValueError("iterations must be at least 1")
-    q = Queue(maxsize=0)
-    errors = list()
-    lengths = list()
-    mazes = list()
-    for x in range(iterations):
-        lengths.append(None)
-        mazes.append(None)
-        q.put(x)
-    for thread in range(threads):
-        worker = Thread(target=build_maze, args=(q, lengths, mazes, errors, height, width))
-        worker.daemon = True
-        worker.start()
-        time.sleep(0.1)
-    while q.unfinished_tasks > 0:
-        time.sleep(3)
-        any_finished = [x for x in lengths if x]
-        if any_finished:
-            print(f"Mazes yet to generate: {q.qsize()}. Best: {max(any_finished)}")
-    if errors:
-        raise errors[0]
-    best = 0
-    for i in range(len(lengths)):
-        if lengths[i] > lengths[best]:
-            best = i
-    return mazes[best]
+    best = None
+    pool = ProcessPoolExecutor(max_workers=threads)
+    try:
+        futures = [pool.submit(build_maze, height, width) for _ in range(iterations)]
+        for done, future in enumerate(as_completed(futures), 1):
+            m = future.result()
+            if best is None or m.length > best.length:
+                best = m
+            print(f"\rMazes yet to generate: {iterations - done}. Best: {best.length}  ", end="", flush=True)
+        print()
+    finally:
+        pool.shutdown(cancel_futures=True)
+    return best
 
 
-if __name__ == '__main__':
+def main(argv=None):
     sys.setrecursionlimit(10**6)
     a = argparse.ArgumentParser()
-    a.add_argument('-H', '--height', default=50, type=int, help='how high to make the maze')
-    a.add_argument('-W', '--width', default=50, type=int, help='how wide to make the maze')
-    a.add_argument('-I', '--iterations', default=100, type=int, help='how many times to try')
-    a.add_argument('-T', '--threads', default=10, type=int, help='how many threads to spawn')
-    args = a.parse_args()
+    a.add_argument('-H', '--height', default=50, type=positive_int, help='how high to make the maze')
+    a.add_argument('-W', '--width', default=50, type=positive_int, help='how wide to make the maze')
+    a.add_argument('-I', '--iterations', default=100, type=positive_int, help='how many times to try')
+    a.add_argument('-T', '--threads', default=10, type=positive_int, help='how many worker processes to use')
+    a.add_argument('-o', '--output', help='save the maze to this PNG (and the solution next to it) instead of showing it')
+    args = a.parse_args(argv)
     start = time.time()
     best_maze = generate_mazes(args.height, args.width, args.iterations, args.threads)
     end = time.time()
-    best_maze.draw(solved=True)
-    best_maze.draw(solved=False)
+    output_maze(best_maze, args.output)
     e_time = round(end - start, 2)
     a_time = round(e_time / args.iterations, 4)
     print(f"Generated {args.iterations} {args.height} by {args.width} mazes in {e_time} seconds "
-          f"using {args.threads} threads, average {a_time} seconds, solution length: {best_maze.length}")
+          f"using {args.threads} processes, average {a_time} seconds, solution length: {best_maze.length}")
+
+
+if __name__ == '__main__':
+    main()
