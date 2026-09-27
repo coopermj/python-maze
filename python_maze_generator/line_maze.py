@@ -26,7 +26,7 @@ class LineMaze:
         self.best = [None, 0]
         try:
             self.build(mode)
-            self.define_maze(self.maze_h, self.maze_w)
+            self.define_maze(self.maze_h, self.maze_w, mode=self.mode)
             if optimize:
                 self.finish(self.maze_w, make_exit=False)
                 self.length = self.optimize()
@@ -205,7 +205,7 @@ class LineMaze:
         x = LineMaze.get_rand_cell_coord(w)
         self.set_contents(y, x, self.cell)
         to_evaluate = list()
-        adj_cells = self.get_adj_cells(y, x)
+        adj_cells = self.get_adj_cells_equal(y, x, self.unevaluated_cell)
         for i in adj_cells:
             to_evaluate.append(i)
         while len(to_evaluate) > 0:
